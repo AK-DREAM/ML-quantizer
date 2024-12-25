@@ -5,10 +5,6 @@ import torch
 
 def ORTH(B):
     return np.linalg.cholesky(B @ B.T)
-"""
-def RED(B):
-    return B
-"""
 def URAN(n):
     return np.random.randn(n)
 def GRAN(n, m):
@@ -65,29 +61,51 @@ def det(B):
         res = res * B[i, i]
     return res
 
-
 Tr = 100
 T = Tr * 10000
+batchSize = 1
 mu0 = 0.001
-v = 500
+v = 250
 n = 10
 
-B = ORTH(RED(GRAN(n, n)))
-B = B / (det(B) ** (1 / n))
-for t in tqdm(range(T)):
-    mu = mu0 * (v ** (-t / (T - 1)))
-    z = URAN(n)
-    y = z - CLP(B, z @ B)
-    e = y @ B
-    e2 = np.linalg.norm(e) ** 2
-    for i in range(n):
-        for j in range(i):
-            B[i, j] -= mu * y[i] * e[j]
-        B[i, i] -= mu * (y[i] * e[i] - e2 / (n * B[i, i]))
-    if t % Tr == Tr - 1:
-        B = ORTH(RED(B))
-        B = B / (det(B) ** (1 / n))
+I = np.eye(n)
+#I_swapped = I.copy() 
+#I_swapped[[0, 1]] = I_swapped[[1, 0]]  
+#G = [torch.tensor(I), torch.tensor(I_swapped)]
+G = [torch.tensor(I)]
 
+L = ORTH(RED(GRAN(n, n)))
+L = L / (det(L) ** (1 / n))
+with tqdm(range(T)) as te:
+    for t in te:
+        mu = mu0 * (v ** (-t / (T - 1)))
+        
+        leaf_L = torch.tensor(L, requires_grad = True)
+        A = torch.zeros(n, n, dtype=torch.float64)
+        for g in G:
+
+            A += (g @ leaf_L) @ (g @ leaf_L).T
+        A /= len(G)
+        B_t = torch.linalg.cholesky(A)
+        B = B_t.detach().numpy()
+        Loss = torch.tensor(0.)
+        for i in range(batchSize):
+            z = URAN(n)
+            y = z - CLP(B, z @ B)
+            e = torch.tensor(y) @ B_t
+            Loss += torch.norm(e) ** 2
+        Loss /= B_t.diagonal().prod() ** (2 / n)
+        Loss /= batchSize
+        # te.set_postfix(loss = Loss.item())
+        Loss.backward()
+        
+        L = L - mu * leaf_L.grad.numpy()
+        
+        if t % Tr == Tr - 1:
+            L = ORTH(RED(L))
+            L = L / (det(L) ** (1 / n))
+
+B = L
 test = 10000
 G = 0
 sigma = 0
