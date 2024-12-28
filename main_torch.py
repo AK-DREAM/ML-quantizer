@@ -74,26 +74,20 @@ def mydet(B):
 
 
 Tr = 100
-T = Tr * 1000
+T = Tr * 100
 mu0 = 0.1
 v = 500
 n = 10
 
-I = np.eye(n)
-I_swapped = I.copy() 
-I_swapped[[0, 1]] = I_swapped[[1, 0]]  
-G = [I]
+G = [np.eye(n)]
 torch_G = [torch.from_numpy(g).float() for g in G]
 
 L = ORTH(RED(GRAN(n, n)))
-# L = ORTH(RED(torch.tensor([[1,3,5],[2,4,3],[6,6,6]]).float()))
 L = L / (torch.linalg.det(L) ** (1 / n))
+L.requires_grad_()
 
 for t in tqdm(range(T)):
     mu = mu0 * (v ** (-t / (T - 1)))
-    # mu = 0.1
-
-    L.requires_grad_()
 
     A = torch.zeros(n, n)
     for g in torch_G: 
@@ -125,8 +119,8 @@ for t in tqdm(range(T)):
     with torch.no_grad():
         L -= mu * L.grad
         if t % Tr == Tr - 1:
-            L = ORTH(RED(L))
-            L = L / (torch.linalg.det(L) ** (1 / n))
+            L.data = ORTH(RED(L.data))
+            L.data = L.data / (torch.linalg.det(L.data) ** (1 / n))
 
 
 
@@ -139,8 +133,8 @@ with torch.no_grad():
     B = ORTH(RED(B))
     B = B / (torch.linalg.det(B) ** (1 / n))
 
-    test = 100000
-    G = 0
+    test = 10000
+    NSM = 0
     sigma = 0
     for i in tqdm(range(test)):
         z = URAN(n)
@@ -148,11 +142,11 @@ with torch.no_grad():
         e = y @ B
         e2 = torch.linalg.norm(e) ** 2
         val = 1 / n * e2
-        G += val
+        NSM += val
         sigma += val * val
 
-    G = G / test
-    sigma = (sigma / test - G ** 2) / (test - 1)
+    NSM = NSM / test
+    sigma = (sigma / test - NSM ** 2) / (test - 1)
 
-    print("G:", G, " sigma:", sigma)
+    print("G:", NSM, " sigma:", sigma)
     print("B: ", B)

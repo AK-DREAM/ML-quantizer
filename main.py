@@ -1,7 +1,6 @@
 import numpy as np
 from tqdm import tqdm
 from lll import LLL_reduction as RED
-
 from chol_diff import chol_rev
 
 
@@ -72,12 +71,9 @@ Tr = 100
 T = Tr * 1000
 mu0 = 0.1
 v = 500
-n = 10
+n = 2
 
-I = np.eye(n)
-I_swapped = I.copy() 
-I_swapped[[0, 1]] = I_swapped[[1, 0]]  
-G = [I]
+G = [np.array([[1,0],[0,1]]), np.array([[-1,0],[0,-1]]), np.array([[1,0],[0,-1]]), np.array([[-1,0],[0,1]])]
 
 L = ORTH(RED(GRAN(n, n)))
 # L = np.array([[1,3,5],[2,4,3],[6,6,6]], dtype = float)
@@ -137,7 +133,7 @@ B = ORTH(RED(B))
 B = B / (det(B) ** (1 / n))
 
 test = 100000
-G = 0
+NSM = 0
 sigma = 0
 for i in tqdm(range(test)):
     z = URAN(n)
@@ -145,11 +141,11 @@ for i in tqdm(range(test)):
     e = y @ B
     e2 = np.linalg.norm(e) ** 2
     val = 1 / n * e2
-    G += val
+    NSM += val
     sigma += val * val
 
-G = G / test
-sigma = (sigma / test - G ** 2) / (test - 1)
+NSM = NSM / test
+sigma = (sigma / test - NSM ** 2) / (test - 1)
 
-print("G:", G, " sigma:", sigma)
+print("NSM:", NSM, " sigma:", sigma)
 print("B: ", B)
