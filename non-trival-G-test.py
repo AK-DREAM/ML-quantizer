@@ -12,11 +12,6 @@ import os
 
 np.random.seed(114514)
 
-#TODO:(perhaps) change numpy to cupy for GPU acceleration
-#TODO: design G
-#TODO: add covariance to error
-
-
 def calc_B(G, L, n, m):
     B1 = la.cholesky(np.mean(np.matmul(np.matmul(G, L[:m,:m]), np.swapaxes(np.matmul(G, L[:m,:m]), -1, -2)), axis=0))
     return np.vstack([np.hstack([B1, np.zeros((m, n-m))]), L[m:]])
@@ -28,7 +23,7 @@ def calc_NSM(B, batch_size, n):
     e = y @ B
     e2 = la.norm(e, axis=-1)**2
 
-    NSM = (det(B)**(-2 / n)) * e2 / n
+    NSM = (np.abs(det(B))**(-2 / n)) * e2 / n
     return y, e, e2, np.mean(NSM)
 
 
@@ -37,7 +32,7 @@ def calc_B_diff(y, e, e2, B, n):
     B_diff.transpose(1, 2, 0)[np.diag_indices(n)] -= np.outer(
         1 / np.diag(B), e2 / n)
     B_diff = np.mean(B_diff, axis=0)
-    B_diff = B_diff * 2 * (det(B)**(-2 / n)) / n
+    B_diff = B_diff * 2 * (np.abs(det(B))**(-2 / n)) / n
     return B_diff
 
 
@@ -65,15 +60,11 @@ def reduce_L(L):
     return L
 
 
-def train(T, G, L, scheduler, n, m, batch_size, checkpoint, theta_image_drawer, loss_drawer):
-    loss_sum = 0
+def train(T, G, L, scheduler, n, m, batch_size):
     for t in tqdm(range(T)):
         mu = scheduler.step()
 
         B = calc_B(G, L, n, m)
-
-        if t in checkpoint:
-            theta_image_drawer.add(B, label = str(t), style = checkpoint[t])
 
         y, e, e2, NSM = calc_NSM(B, batch_size, n)
 
@@ -81,71 +72,60 @@ def train(T, G, L, scheduler, n, m, batch_size, checkpoint, theta_image_drawer, 
 
         L -= mu * L_diff
 
-        loss_sum += NSM.mean()
-
         if t % Tr == Tr - 1:
-            loss_drawer.add(loss_sum / Tr)
-            loss_sum = 0
             L = reduce_L(L)
-    if T in checkpoint:
-        B = calc_B(G, L, n, m)
-        theta_image_drawer.add(B, label = str(T), style = checkpoint[T])
     return L
 
 
 if __name__ == "__main__":
     Tr = 100
     T = Tr * 1000
-    mu0 = 5
+    mu0 = 0.25
     v = 1000
-    n = 13
-    m = 13  # restrictions only on first m vectors 
+    n = 15
+    m = 6  # restrictions only on first m vectors 
     batch_size = 128
 
-    I = np.eye(m)
-    I_13 = I.copy()
-    I_13[12, 12] = -1
-    G = [I]  # array of m*m matrices
-    """
+    I = np.eye(3)
+    Z = np.zeros((3,3))
+    g1 = np.vstack((np.hstack((Z, I)), np.hstack((I, Z))))
     G = [
-        np.array([[1,0],[0,1]]),
-        np.array([[0,-1],[1,1]]),
-        np.array([[-1,-1],[1,0]]),
-        np.array([[-1,0],[0,-1]]),
-        np.array([[0,1],[-1,-1]]),
-        np.array([[1,1],[-1,0]]),
-        np.array([[1,0],[-1,-1]]),
-        np.array([[0,-1],[-1,0]]),
-        np.array([[-1,-1],[0,1]]),
-        np.array([[-1,0],[1,1]]),
-        np.array([[0,1],[1,0]]),
-        np.array([[1,1],[0,-1]]),
+    g1,
+    np.eye(m)
     ]
-    """
+
+    #E_8-Invariant group
+    # G = [
+    # 	np.array([[0, 1], [1, 0]]),
+    # 	np.eye(2)
+    # ]
+
+    # G = [
+    #     np.array([
+    #         [2, 3, 2, 1, 0, 0, 0, 0],
+    #         [-1, -2, -1, -1, 0, 0, 0, 0],
+    #         [0, 0, -1, 0, 0, 0, 0, 0],
+    #         [0, 0, 1, 1, 0, 0, 0, 0],
+    #         [-1, -1, -1, -1, 0, 0, 0, 1],
+    #         [3, 5, 4, 3, 2, 1, 1, -2],
+    #         [0, 0, 0, 0, 0, 0, -1, 0],
+    #         [1, 1, 1, 1, 1, 0, 0, 0]]),
+    #     np.eye(8)
+    # ]
+    
     G = np.array(G)
-    L = GRAN(n, n)
+    L = ORTH(RED(GRAN(n, n)))
     L = L / (np.abs(det(L))**(1 / n))
+    print(L)
 
-    # scheduler = CosineAnnealingRestartLRScheduler(initial_lr=mu0)
-    scheduler = ExponentialLRScheduler(initial_lr=mu0, gamma=v**(-1 / T))
+    scheduler = CosineAnnealingRestartLRScheduler(initial_lr=mu0)
+    # scheduler = ExponentialLRScheduler(initial_lr=mu0, gamma=v**(-1 / T))
 
-    checkpoint = {
-        0: {"linestyle": '--', "alpha": 0.5},
-        0.001 * T: {"linestyle": '--', "alpha": 0.6},
-        0.003 * T: {"linestyle": '--', "alpha": 0.7},
-        0.01 * T: {"linestyle": '--', "alpha": 0.8},
-        0.1 * T: {"linestyle": '--', "alpha": 0.9},
-        T: {"linestyle": '-', "alpha": 1},
-    }
-
-    theta_image_drawer = Theta_Image_Drawer()
-    loss_drawer = Loss_Drawer(start = T / Tr * 0.1)
-
-    L = train(T, G, L, scheduler, n, m, batch_size, checkpoint, theta_image_drawer, loss_drawer)
+    L = train(T, G, L, scheduler, n, m, batch_size)
 
     B = calc_B(G, L, n, m)
     B = ORTH(RED(B))
-    B = B / (det(B)**(1 / n))
+    B = B / (np.abs(det(B))**(1 / n))
 
     NSM, sigma = grader(B)
     data = {
@@ -164,16 +144,13 @@ if __name__ == "__main__":
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
+    
     np.set_printoptions(suppress=True)
     np.set_printoptions(precision=4)
     print("B: ", B)
     
     filename = time.strftime("%Y%m%d-%H-%M-%S", time.localtime())
-    
-    if checkpoint != None:
-        theta_image_drawer.show(path = save_path + "T" + filename + ".svg")
-    loss_drawer.show(path = save_path + "L" + filename + ".svg")
-
+  
     np.savez(
         save_path + "B" + filename,
         **data)
